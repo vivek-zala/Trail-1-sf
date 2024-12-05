@@ -1,0 +1,102 @@
+version: 2.1
+
+executors:
+  salesforce-executor:
+    docker:
+      - image: circleci/python:3.8  # A basic image. You can use a different image based on your needs.
+    working_directory: ~/repo  # Directory where your Salesforce project is checked out
+
+jobs:
+  install-dependencies:
+    executor: salesforce-executor
+    steps:
+      - checkout  # Checkout the code from GitHub
+      - run:
+          name: Install Salesforce CLI
+          command: |
+            curl -sL https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-x64.tar.xz | tar xJ
+            sudo mv sfdx /usr/local/bin/
+            sfdx --version  # Verify installation
+
+  authenticate-scratch-org:
+    executor: salesforce-executor
+    steps:
+      - checkout
+      - run:
+          name: Authenticate with Salesforce Org
+          command: |
+            echo $SF_AUTH_URL | sfdx auth:sfdxurl:store --setalias my-scratch-org --noprompt
+            sfdx force:org display  # Verify that the org is authenticated successfully
+
+  create-scratch-org:
+    executor: salesforce-executor
+    steps:
+      - checkout
+      - run:
+          name: Create Salesforce Scratch Org
+          command: |
+            sfdx force:org:create -f config/project-scratch-def.json -a my-scratch-org -s -d 30  # Adjust org definition as needed
+            sfdx force:org:open  # Optionally open the Scratch Org in the browser
+
+  run-tests:
+    executor: salesforce-executor
+    steps:
+      - checkout
+      - run:
+          name: Run Apex Tests
+          command: |
+            sfdx force:apex:test:run --resultformat human --wait 10 --testlevel RunLocalTests
+            sfdx force:apex:test:report  # Generate a report on the tests
+
+  push-to-github:
+    docker:
+      - image: circleci/python:3.8  # Using the Python image to run git commands
+    steps:
+      - checkout  # Checkout the code from GitHub
+      - run:
+          name: Set up GitHub Authentication
+          command: |
+            git config --global user.email "your-email@example.com"
+            git config --global user.name "Your Name"
+            git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/your-username/your-repository.git
+      - run:
+          name: Commit and Push Changes to GitHub
+          command: |
+            git add .
+            git commit -m "Automated commit from CircleCI after passing tests"
+            git push origin master  # Push to the master branch or adjust to your branch
+
+  deploy-to-scratch-org:
+    executor: salesforce-executor
+    steps:
+      - checkout
+      - run:
+          name: Deploy Metadata to Scratch Org
+          command: |
+            sfdx force:source:deploy -p force-app --targetusername my-scratch-org --wait 10
+            sfdx force:apex:test:run --resultformat human --wait 10  # Optionally run Apex tests after deployment
+
+workflows:
+  version: 2
+  deploy:
+    jobs:
+      - install-dependencies
+      - authenticate-scratch-org:
+          requires:
+            - install-dependencies
+      - create-scratch-org:
+          requires:
+            - authenticate-scratch-org
+      - run-tests:
+          requires:
+            - create-scratch-org
+      - push-to-github:
+          requires:
+            - run-tests
+          filters:
+            branches:
+              only:
+                - master  # Only push to GitHub on the master branch or adjust as needed
+      - deploy-to-scratch-org:
+          requires:
+            - push-to-github
