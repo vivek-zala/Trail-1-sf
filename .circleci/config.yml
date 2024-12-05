@@ -3,8 +3,8 @@ version: 2.1
 executors:
   salesforce-executor:
     docker:
-      - image: circleci/python:3.8  # A basic image. You can use a different image based on your needs.
-    working_directory: ~/repo  # Directory where your Salesforce project is checked out
+      - image: cimg/node:16.10 # NodeJS image is commonly used for Salesforce CLI
+    working_directory: ~/repo  # Working directory for your Salesforce project
 
 jobs:
   install-dependencies:
@@ -26,7 +26,7 @@ jobs:
           name: Authenticate with Salesforce Org
           command: |
             echo $SF_AUTH_URL | sfdx auth:sfdxurl:store --setalias my-scratch-org --noprompt
-            sfdx force:org display  # Verify that the org is authenticated successfully
+            sfdx force:org:display  # Verify that the org is authenticated successfully
 
   create-scratch-org:
     executor: salesforce-executor
@@ -50,7 +50,7 @@ jobs:
 
   push-to-github:
     docker:
-      - image: circleci/python:3.8  # Using the Python image to run git commands
+      - image: cimg/node:16.10 # Using Node.js image here for Git commands
     steps:
       - checkout  # Checkout the code from GitHub
       - run:
